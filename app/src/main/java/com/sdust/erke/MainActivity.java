@@ -458,25 +458,42 @@ public class MainActivity extends Activity {
                 + "\n时间：" + fmt(o.optLong("startTime")) + " ~ " + fmt(o.optLong("endTime"))
                 + "\n地点：" + o.optString("address") + "　打卡：" + phase + "　学时：" + o.optString("hours"));
         c.addView(meta);
+        TextView signTv = new TextView(this);
+        signTv.setTextSize(12);
+        signTv.setPadding(0, dp(4), 0, 0);
+        setSignStatusText(signTv, o.optInt("isSigner", 0) == 1, false);
+        c.addView(signTv);
         c.setOnClickListener(v -> openDetail(id, o.optString("name")));
         addQuota(c, 0, 0); // 名额下面异步补
         final LinearLayout cardRef = c;
+        final TextView signTvRef = signTv;
         runBg(() -> {
             try {
                 JSONObject d = api.detail(id);
                 final int cnt = d.optInt("joinMemberCount"), max = d.optInt("peopleLimit");
-                if (max > 0) runOnUiThread(() -> addQuota(cardRef, cnt, max));
+                final boolean signedIn = d.optInt("isSigner", 0) == 1 || d.optInt("signInCount", 0) > 0;
+                final boolean signedOut = d.optInt("signOutCount", 0) > 0;
+                runOnUiThread(() -> {
+                    if (max > 0) addQuota(cardRef, cnt, max);
+                    setSignStatusText(signTvRef, signedIn, signedOut);
+                });
             } catch (Exception ignored) {}
         });
         LinearLayout btns = new LinearLayout(this);
         btns.setOrientation(LinearLayout.HORIZONTAL); btns.setPadding(0, dp(10), 0, 0);
         Button sign = btn("出示签到码", true); sign.setOnClickListener(v -> showSignQr(id));
         Button rec = btn("打卡记录", false); rec.setOnClickListener(v -> showRecords(id));
-        Button stt = btn("查状态", false); stt.setOnClickListener(v -> queryOne(id));
         Button cancel = btn("取消报名", false); cancel.setOnClickListener(v -> cancelEnroll(id));
-        btns.addView(sign); btns.addView(rec); btns.addView(stt); btns.addView(cancel);
+        btns.addView(sign); btns.addView(rec); btns.addView(cancel);
         c.addView(btns);
         myBox.addView(c);
+    }
+
+    /** 在“我的活动”卡片上直接显示签到状态。 */
+    private void setSignStatusText(TextView tv, boolean signedIn, boolean signedOut) {
+        if (signedOut) { tv.setText("签到状态：已签退 ✅"); tv.setTextColor(0xFF0BBD69); }
+        else if (signedIn) { tv.setText("签到状态：已签到 ✅"); tv.setTextColor(0xFF0BBD69); }
+        else { tv.setText("签到状态：未签到"); tv.setTextColor(0xFFE67E22); }
     }
 
     // ---------------- 活动广场 ----------------
@@ -800,40 +817,7 @@ public class MainActivity extends Activity {
             });
             return;
         }
-        final int size = dp(260);
-        ImageView iv = new ImageView(this);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
-        lp.gravity = Gravity.CENTER_HORIZONTAL;
-        iv.setLayoutParams(lp);
-        TextView tip = new TextView(this);
-        tip.setTextSize(12); tip.setTextColor(cSub()); tip.setPadding(0, dp(10), 0, 0);
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(16), dp(16), dp(16), dp(16));
-        box.setBackgroundColor(cCard());
-        box.addView(iv); box.addView(tip);
-        final AlertDialog dlg = new AlertDialog.Builder(this)
-                .setTitle("请把此二维码出示给工作人员扫描")
-                .setView(box).setPositiveButton("关闭", null).create();
-        final Handler h = new Handler(Looper.getMainLooper());
-        final Runnable refresh = new Runnable() {
-            @Override public void run() {
-                String content = "qutuo://waitSign?activityId=" + activityId + "&userId=" + myUserId
-                        + "&sp=" + System.currentTimeMillis() + "?yiban=yiban_scan_result";
-                Bitmap bm = qrBitmap(content, size);
-                if (bm != null) {
-                    iv.setImageBitmap(bm);
-                    GradientDrawable wbg = new GradientDrawable();
-                    wbg.setColor(0xFFFFFFFF); wbg.setCornerRadius(dp(8));
-                    iv.setBackground(wbg);
-                }
-                tip.setText("活动 " + activityId + " · 二维码每 8 秒自动刷新\n保持本页打开，工作人员扫码即可完成签到/签退");
-                if (dlg.isShowing()) h.postDelayed(this, 8000);
-            }
-        };
-        dlg.setOnDismissListener(d -> h.removeCallbacks(refresh));
-        dlg.show();
-        h.post(refresh);
+        SignQrDialog.show(this, api, activityId, myUserId, this::refreshMy);
     }
 
     private Bitmap qrBitmap(String content, int size) {

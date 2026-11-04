@@ -335,34 +335,7 @@ public class ActivityDetailActivity extends Activity {
 
     private void showSignQr() {
         if (myUserId == 0) { toast("正在获取账号信息，请稍后再试"); load(); return; }
-        final int size = dp(260);
-        ImageView iv = new ImageView(this);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
-        lp.gravity = Gravity.CENTER_HORIZONTAL; iv.setLayoutParams(lp);
-        TextView tip = new TextView(this);
-        tip.setTextSize(12); tip.setTextColor(cSub()); tip.setPadding(0, dp(10), 0, 0);
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(16), dp(16), dp(16), dp(16));
-        box.setBackgroundColor(0xFFFFFFFF);
-        box.addView(iv); box.addView(tip);
-        final AlertDialog dlg = new AlertDialog.Builder(this)
-                .setTitle("请把此二维码出示给工作人员扫描").setView(box).setPositiveButton("关闭", null).create();
-        final Handler h = new Handler(Looper.getMainLooper());
-        final Runnable refresh = new Runnable() {
-            @Override public void run() {
-                String cnt = "qutuo://waitSign?activityId=" + id + "&userId=" + myUserId + "&sp=" + System.currentTimeMillis() + "?yiban=yiban_scan_result";
-                Bitmap bm = qrBitmap(cnt, size);
-                if (bm != null) {
-                    iv.setImageBitmap(bm);
-                    GradientDrawable w = new GradientDrawable(); w.setColor(0xFFFFFFFF); w.setCornerRadius(dp(8)); iv.setBackground(w);
-                }
-                tip.setText("活动 " + id + " · 二维码每 8 秒自动刷新\n保持本页打开，工作人员扫码即可完成签到/签退");
-                if (dlg.isShowing()) h.postDelayed(this, 8000);
-            }
-        };
-        dlg.setOnDismissListener(d -> h.removeCallbacks(refresh));
-        dlg.show(); h.post(refresh);
+        SignQrDialog.show(this, api, id, myUserId, this::load);
     }
 
     private void showAttachDialog(JSONObject a) {

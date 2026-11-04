@@ -232,6 +232,18 @@ public class Api {
         return r.getJSONObject("data");
     }
 
+    /**
+     * 活动签到统计（返回完整响应：data 为全场签到数，timestamp 为服务器时间戳）。
+     * 服务器时间戳用于生成签到二维码里的 sp，避免手机时钟偏差导致工作人员扫码失败。
+     */
+    public JSONObject signCount(int id) throws Exception {
+        JSONObject p = new JSONObject();
+        p.put("id", id);
+        JSONObject r = apiGet("activity/sign/count", p);
+        if (r.optInt("code", -1) != 0) throw new IOException(r.optString("msg"));
+        return r;
+    }
+
     public JSONObject enroll(int id, JSONArray personMaterial) throws Exception {
         JSONObject p = new JSONObject();
         p.put("id", id);

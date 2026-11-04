@@ -172,6 +172,19 @@ public class ActivityDetailActivity extends Activity {
         return t;
     }
 
+    private String namesOf(JSONArray arr) {
+        if (arr == null || arr.length() == 0) return "不限";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            String n = o != null ? o.optString("name") : arr.optString(i);
+            if (n != null && !n.isEmpty()) { if (sb.length() > 0) sb.append("、"); sb.append(n); }
+        }
+        return sb.length() == 0 ? "不限" : sb.toString();
+    }
+
+    private String genderText(int g) { return g == 1 ? "男" : (g == 2 ? "女" : "不限"); }
+
     private void render() {
         content.removeAllViews();
         if (detail == null) return;
@@ -189,7 +202,7 @@ public class ActivityDetailActivity extends Activity {
         chips.addView(chip(stName(status), 0xFFFFFFFF, stColor(status)));
         if (!detail.optString("classifyName").isEmpty()) chips.addView(chip(detail.optString("classifyName"), cAccent(), 0x1A000000 | (accent & 0xFFFFFF)));
         head.addView(chips);
-        head.addView(line("主办：", detail.optString("organizationName")));
+        head.addView(line("举办单位：", detail.optString("organizationName")));
         content.addView(head);
 
         LinearLayout info = card();
@@ -197,6 +210,12 @@ public class ActivityDetailActivity extends Activity {
         info.addView(line("报名时间：", fmt(detail.optLong("enrollStartTime")) + " ~ " + fmt(detail.optLong("enrollEndTime"))));
         info.addView(line("活动时间：", fmt(detail.optLong("startTime")) + " ~ " + fmt(detail.optLong("endTime"))));
         info.addView(line("地点：", detail.optString("address")));
+        info.addView(line("学院限制：", namesOf(detail.optJSONArray("collegeList"))));
+        info.addView(line("年级限制：", namesOf(detail.optJSONArray("gradeList"))));
+        info.addView(line("性别限制：", genderText(detail.optInt("genderLimit"))));
+        int honest = detail.optInt("honestLimit", 0);
+        if (honest > 0) info.addView(line("诚信分要求：", "≥ " + honest));
+        if (!detail.optString("unionOrganizer").isEmpty()) info.addView(line("联合主办：", detail.optString("unionOrganizer")));
         JSONObject mgr = detail.optJSONObject("manager");
         String contact = detail.optString("contact");
         info.addView(line("联系人：", (mgr != null ? mgr.optString("name") : "") + (contact.isEmpty() ? "" : "（" + contact + "）")));

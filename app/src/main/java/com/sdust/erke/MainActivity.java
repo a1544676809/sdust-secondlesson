@@ -42,10 +42,10 @@ public class MainActivity extends Activity {
     private SharedPreferences sp;
     private Api api = new Api();
     private TextView tvUser, tvStatus, tvBell;
-    private LinearLayout actBox, myBox;
+    private LinearLayout actBox, myBox, profBox;
     private FrameLayout contentFrame;
-    private ScrollView[] pages = new ScrollView[2];
-    private TextView[] tabs = new TextView[2];
+    private ScrollView[] pages = new ScrollView[3];
+    private TextView[] tabs = new TextView[3];
     private int curTab = 0;
 
     private boolean dark = false;
@@ -190,14 +190,24 @@ public class MainActivity extends Activity {
         actPage.addView(actBox);
         pages[1] = wrapScroll(actPage); contentFrame.addView(pages[1]);
 
+        // 页3：我的（个人信息 + 学时总览 + 学时种类）
+        LinearLayout profPage = new LinearLayout(this);
+        profPage.setOrientation(LinearLayout.VERTICAL);
+        profPage.setPadding(dp(14), dp(10), dp(14), dp(10));
+        profPage.addView(hRow("我的", v -> refreshProfile()));
+        profBox = new LinearLayout(this);
+        profBox.setOrientation(LinearLayout.VERTICAL);
+        profPage.addView(profBox);
+        pages[2] = wrapScroll(profPage); contentFrame.addView(pages[2]);
+
         // 底部导航
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
         nav.setBackgroundColor(cCard());
         nav.setPadding(0, dp(4), 0, dp(4));
         nav.setElevation(dp(8));
-        String[] names = {"我的活动", "活动广场"};
-        for (int i = 0; i < 2; i++) {
+        String[] names = {"我的活动", "活动广场", "我的"};
+        for (int i = 0; i < names.length; i++) {
             final int idx = i;
             TextView tab = new TextView(this);
             tab.setText(names[i]);
@@ -237,7 +247,7 @@ public class MainActivity extends Activity {
 
     private void setTab(int i) {
         curTab = i;
-        for (int k = 0; k < 2; k++) {
+        for (int k = 0; k < 3; k++) {
             if (pages[k] != null) pages[k].setVisibility(k == i ? View.VISIBLE : View.GONE);
             if (tabs[k] != null) {
                 tabs[k].setTextColor(k == i ? cAccent() : cSub());
@@ -246,6 +256,7 @@ public class MainActivity extends Activity {
         }
         if (i == 0) refreshMy();
         else if (i == 1) refreshActivities(false);
+        else if (i == 2) refreshProfile();
     }
 
     private GradientDrawable bg(int color, int radiusDp, int strokeDp, int strokeColor) {
@@ -351,6 +362,114 @@ public class MainActivity extends Activity {
                 });
             }
         });
+    }
+
+    // ---------------- 我的（个人信息 + 学时） ----------------
+    private static double parseD(String s) {
+        try { return Double.parseDouble(s == null ? "0" : s.trim()); } catch (Exception e) { return 0; }
+    }
+    private static String fmtNum(double d) {
+        if (Math.abs(d - Math.round(d)) < 1e-9) return String.valueOf((long) Math.round(d));
+        return String.valueOf(Math.round(d * 100) / 100.0);
+    }
+    private TextView smallLine(String s) {
+        TextView t = new TextView(this);
+        t.setText(s); t.setTextSize(12); t.setTextColor(cSub());
+        t.setPadding(0, dp(3), 0, 0);
+        return t;
+    }
+
+    private void refreshProfile() {
+        runBg(() -> {
+            try {
+                JSONObject info = api.myInfo();
+                JSONObject u = info.optJSONObject("data");
+                JSONArray cats = api.achievementByClassify();
+                runOnUiThread(() -> { tvStatus.setText("我的"); renderProfile(u, cats); });
+            } catch (Exception e) {
+                final String m = e.getMessage();
+                runOnUiThread(() -> {
+                    if (isBlocked(m)) { tvStatus.setText("我的：网络受限"); promptVpnRelogin(); }
+                    else tvStatus.setText("我的加载失败：" + m);
+                });
+            }
+        });
+    }
+
+    private void renderProfile(JSONObject u, JSONArray cats) {
+        profBox.removeAllViews();
+        if (u == null) { profBox.addView(emptyText("暂无个人信息")); return; }
+        if (cats == null) cats = new JSONArray();
+
+        // 个人信息
+        LinearLayout info = card();
+        TextView name = new TextView(this);
+        name.setText(safe(u.optString("name")));
+        name.setTextSize(20); name.setTextColor(cText()); name.setTypeface(null, Typeface.BOLD);
+        info.addView(name);
+        info.addView(smallLine("学号 " + safe(u.optString("code")) + " · " + safe(u.optString("collegeName"))));
+        String gradeStr = u.optInt("grade", 0) > 0 ? (u.optInt("grade") + "级") : "";
+        info.addView(smallLine(safe(u.optString("majorName")) + " · " + safe(u.optString("className")) + (gradeStr.isEmpty() ? "" : " · " + gradeStr)));
+        profBox.addView(info);
+
+        // 学时总览
+        double total = 0, req = 0;
+        for (int i = 0; i < cats.length(); i++) {
+            JSONObject c = cats.optJSONObject(i);
+            if (c == null) continue;
+            total += parseD(c.optString("classifyHours", "0"));
+            req += c.optDouble("minHours", 0);
+        }
+        if (total == 0) { double h = u.optDouble("hours", 0); if (h > 0) total = h; }
+        LinearLayout tc = card();
+        TextView tt = new TextView(this);
+        tt.setText("已获学时"); tt.setTextSize(13); tt.setTextColor(cSub()); tt.setTypeface(null, Typeface.BOLD);
+        tc.addView(tt);
+        TextView tvTotal = new TextView(this);
+        tvTotal.setText(fmtNum(total));
+        tvTotal.setTextSize(30); tvTotal.setTextColor(cAccent()); tvTotal.setTypeface(null, Typeface.BOLD);
+        tvTotal.setPadding(0, dp(4), 0, 0);
+        tc.addView(tvTotal);
+        String unit = safe(u.optString("hourUnit"));
+        TextView tvUnit = new TextView(this);
+        tvUnit.setText("单位：" + (unit.isEmpty() ? "学时" : unit));
+        tvUnit.setTextSize(11); tvUnit.setTextColor(cSub());
+        tc.addView(tvUnit);
+        profBox.addView(tc);
+
+        // 学时种类明细
+        profBox.addView(sectionText("学时种类（已获 / 要求）"));
+        if (cats.length() == 0) { profBox.addView(emptyText("暂无学时数据")); return; }
+        for (int i = 0; i < cats.length(); i++) {
+            JSONObject c = cats.optJSONObject(i);
+            if (c == null) continue;
+            double got = parseD(c.optString("classifyHours", "0"));
+            double need = c.optDouble("minHours", 0);
+            LinearLayout cc = card();
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            TextView nm = new TextView(this);
+            nm.setText(safe(c.optString("classifyName")));
+            nm.setTextSize(14); nm.setTextColor(cText()); nm.setTypeface(null, Typeface.BOLD);
+            nm.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            TextView val = new TextView(this);
+            val.setText(fmtNum(got) + (need > 0 ? " / " + fmtNum(need) : ""));
+            val.setTextSize(14); val.setTextColor(cAccent()); val.setTypeface(null, Typeface.BOLD);
+            row.addView(nm); row.addView(val);
+            cc.addView(row);
+            if (need > 0) {
+                ProgressBar pb = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+                pb.setMax((int) Math.max(1, Math.round(need * 100)));
+                pb.setProgress((int) Math.max(0, Math.min(Math.round(got * 100), Math.round(need * 100))));
+                pb.setProgressTintList(ColorStateList.valueOf(cAccent()));
+                LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8));
+                plp.topMargin = dp(6);
+                pb.setLayoutParams(plp);
+                cc.addView(pb);
+            }
+            profBox.addView(cc);
+        }
     }
 
     private void refreshActivities(boolean ignored) {

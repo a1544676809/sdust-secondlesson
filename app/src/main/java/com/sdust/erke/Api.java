@@ -213,6 +213,14 @@ public class Api {
 
     public JSONObject myInfo() throws Exception { return apiGet("student/user/my-info", new JSONObject()); }
 
+    /** 按活动种类统计学时（每项含 classifyName / classifyHours 已获 / minHours 要求）。 */
+    public JSONArray achievementByClassify() throws Exception {
+        JSONObject r = apiGet("student/achievement/by-classify-list", new JSONObject());
+        if (r.optInt("code", -1) != 0) throw new IOException(r.optString("msg"));
+        JSONArray a = r.optJSONArray("data");
+        return a == null ? new JSONArray() : a;
+    }
+
     public JSONArray listActivities(String status) throws Exception {
         JSONObject p = new JSONObject();
         p.put("pageNum", 1); p.put("pageSize", 200); p.put("sortType", 1);

@@ -121,12 +121,12 @@ public class ActivityDetailActivity extends Activity {
     }
     private static String stName(int s) {
         switch (s) {
-            case 4: return "报名未开始"; case 5: return "报名中"; case 6: return "进行中";
-            case 7: return "已结束"; case 8: return "已取消"; default: return "状态" + s;
+            case 4: return "报名未开始"; case 5: return "报名中"; case 6: return "待开始";
+            case 7: return "进行中"; case 8: return "已结束"; default: return "状态" + s;
         }
     }
     private int stColor(int s) {
-        switch (s) { case 4: return 0xFFE6A23C; case 5: return 0xFF0B8F6A; case 6: return 0xFF409EFF; default: return 0xFF909399; }
+        switch (s) { case 4: return 0xFFE6A23C; case 5: return 0xFF0B8F6A; case 6: return 0xFFE6A23C; case 7: return 0xFF409EFF; case 8: return 0xFF909399; default: return 0xFF909399; }
     }
 
     private void load() {
@@ -272,8 +272,16 @@ public class ActivityDetailActivity extends Activity {
         if (applyStatus == 2) {
             Button sign = btn("出示签到码", true); sign.setOnClickListener(v -> showSignQr());
             Button rec = btn("打卡记录", false); rec.setOnClickListener(v -> showRecords());
-            Button cancel = btn("取消报名", false); cancel.setOnClickListener(v -> cancelEnroll());
-            row1.addView(sign); row1.addView(rec); row1.addView(cancel);
+            row1.addView(sign); row1.addView(rec);
+            if (status == 5) {   // 仅报名阶段(status=5 报名中)可取消
+                Button cancel = btn("取消报名", false); cancel.setOnClickListener(v -> cancelEnroll());
+                row1.addView(cancel);
+            } else {
+                TextView nc = new TextView(this);
+                nc.setText("报名阶段已结束，不可取消报名");
+                nc.setTextSize(11); nc.setTextColor(cSub()); nc.setPadding(dp(8), dp(8), 0, 0);
+                row1.addView(nc);
+            }
         } else {
             Button grab = btn("立即抢", true); grab.setOnClickListener(v -> manualEnroll());
             row1.addView(grab);

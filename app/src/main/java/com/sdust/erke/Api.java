@@ -262,7 +262,7 @@ public class Api {
     public JSONObject myList() throws Exception {
         JSONObject p = new JSONObject();
         p.put("pageNum", 1); p.put("pageSize", 60);
-        p.put("status", "5,6,7"); p.put("applyStatus", "2");
+        p.put("status", "4,5,6,7,8"); p.put("applyStatus", "2");
         JSONObject r = apiGet("activity/my-list", p);
         if (r.optInt("code", -1) != 0) throw new IOException(r.optString("msg"));
         JSONObject d = r.optJSONObject("data");

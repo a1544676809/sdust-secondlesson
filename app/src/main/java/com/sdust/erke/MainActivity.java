@@ -289,10 +289,11 @@ public class MainActivity extends Activity {
 
     private int statusColor(int st) {
         switch (st) {
-            case 4: return 0xFFE6A23C;
-            case 5: return 0xFF0B8F6A;
-            case 6: return 0xFF409EFF;
-            case 7: return 0xFF909399;
+            case 4: return 0xFFE6A23C;   // 报名未开始 - 橙
+            case 5: return 0xFF0B8F6A;   // 报名中 - 绿
+            case 6: return 0xFFE6A23C;   // 待开始 - 橙
+            case 7: return 0xFF409EFF;   // 进行中 - 蓝
+            case 8: return 0xFF909399;   // 已结束 - 灰
             default: return 0xFF909399;
         }
     }
@@ -355,7 +356,7 @@ public class MainActivity extends Activity {
     private void refreshActivities(boolean ignored) {
         runBg(() -> {
             try {
-                final JSONArray arr = api.listActivities("4,5,6,7");
+                final JSONArray arr = api.listActivities("4,5,6,7,8");
                 runOnUiThread(() -> {
                     allActivities = arr;
                     tvStatus.setText("活动数：" + arr.length());
@@ -409,8 +410,8 @@ public class MainActivity extends Activity {
     private static String statusName(int st) {
         switch (st) {
             case 1: return "草稿"; case 2: return "待审核"; case 3: return "审核通过";
-            case 4: return "报名未开始"; case 5: return "报名中"; case 6: return "进行中";
-            case 7: return "已结束"; case 8: return "已取消"; default: return "状态" + st;
+            case 4: return "报名未开始"; case 5: return "报名中"; case 6: return "待开始";
+            case 7: return "进行中"; case 8: return "已结束"; default: return "状态" + st;
         }
     }
 
@@ -424,7 +425,7 @@ public class MainActivity extends Activity {
         myListCache = arr;
         myBox.removeAllViews();
         if (arr.length() == 0) { myBox.addView(emptyText("暂无已报名活动，去“活动广场”报名后再刷新")); return; }
-        int[] order = {5, 6, 7, 4, 8, 3, 2, 1};
+        int[] order = {5, 4, 6, 7, 8, 3, 2, 1};
         boolean any = false;
         for (int g : order) {
             boolean header = false;
@@ -483,9 +484,18 @@ public class MainActivity extends Activity {
         btns.setOrientation(LinearLayout.HORIZONTAL); btns.setPadding(0, dp(10), 0, 0);
         Button sign = btn("出示签到码", true); sign.setOnClickListener(v -> showSignQr(id));
         Button rec = btn("打卡记录", false); rec.setOnClickListener(v -> showRecords(id));
-        Button cancel = btn("取消报名", false); cancel.setOnClickListener(v -> cancelEnroll(id));
-        btns.addView(sign); btns.addView(rec); btns.addView(cancel);
+        btns.addView(sign); btns.addView(rec);
+        if (st == 5) {   // 仅报名阶段(status=5 报名中)可取消
+            Button cancel = btn("取消报名", false); cancel.setOnClickListener(v -> cancelEnroll(id));
+            btns.addView(cancel);
+        }
         c.addView(btns);
+        if (st != 5) {
+            TextView noCancel = new TextView(this);
+            noCancel.setText("报名阶段已结束，不可取消报名");
+            noCancel.setTextSize(11); noCancel.setTextColor(cSub()); noCancel.setPadding(0, dp(6), 0, 0);
+            c.addView(noCancel);
+        }
         myBox.addView(c);
     }
 
@@ -565,8 +575,8 @@ public class MainActivity extends Activity {
         LinearLayout chips = new LinearLayout(this);
         chips.setOrientation(LinearLayout.HORIZONTAL);
         chips.setPadding(0, dp(8), 0, 0);
-        final int[] vals = {4, 5, 6, 7};
-        final String[] labs = {"报名未开始", "报名中", "进行中", "已结束"};
+        final int[] vals = {4, 5, 6, 7, 8};
+        final String[] labs = {"报名未开始", "报名中", "待开始", "进行中", "已结束"};
         statusChips = new TextView[vals.length];
         for (int i = 0; i < vals.length; i++) {
             final int v = vals[i];
@@ -596,7 +606,7 @@ public class MainActivity extends Activity {
 
     private void updateStatusChips() {
         if (statusChips == null) return;
-        int[] vals = {4, 5, 6, 7};
+        int[] vals = {4, 5, 6, 7, 8};
         for (int i = 0; i < statusChips.length; i++) {
             boolean on = fStatus.contains(vals[i]);
             statusChips[i].setTextColor(on ? 0xFFFFFFFF : cAccent());
@@ -671,8 +681,8 @@ public class MainActivity extends Activity {
     }
 
     private void showStatusFilter() {
-        final int[] vals = {4, 5, 6, 7};
-        final String[] labs = {"报名未开始", "报名中", "进行中", "已结束"};
+        final int[] vals = {4, 5, 6, 7, 8};
+        final String[] labs = {"报名未开始", "报名中", "待开始", "进行中", "已结束"};
         boolean[] checked = new boolean[vals.length];
         for (int i = 0; i < vals.length; i++) checked[i] = fStatus.contains(vals[i]);
         new AlertDialog.Builder(this).setTitle("按状态筛选")

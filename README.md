@@ -42,14 +42,6 @@ keyPassword=你的key密码
 
 并放置对应的 `.jks` 文件。没有该文件时 `assembleRelease` 会产出未签名包。
 
-## 版本号与发布流程（重要）
-- 版本号遵循「只递增最后一位」的补丁式：`1.0.1 → 1.0.2 → …`。改版本时**同时把 `app/build.gradle` 的 `versionCode` 加 1**——不递增的话手机/系统会认为还是同一版本，不允许覆盖升级。
-- **不得自动发布 Release。** 每次发正式版必须按顺序执行，缺一不可：
-  1. 本地 `assembleRelease` 编译通过；
-  2. 在真机 / 模拟器上**实测通过**（登录、我的活动、活动广场、详情、签到二维码等）；
-  3. **由负责人下命令确认**；
-  4. 才执行 `gh release create` 上传 APK 并打 tag（tag 名与 `versionName` 一致，如 `v1.0.1`）。
-
 ## 许可证
 
 本项目基于 **GNU General Public License v3.0** 发布，详见 [LICENSE](LICENSE)。

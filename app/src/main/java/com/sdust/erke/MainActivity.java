@@ -42,7 +42,7 @@ public class MainActivity extends Activity {
     private SharedPreferences sp;
     private Api api = new Api();
     private TextView tvUser, tvStatus, tvBell;
-    private LinearLayout actBox, myBox, profBox;
+    private LinearLayout actBox, myBox, profBox, favBox, profCatBox;
     private FrameLayout contentFrame;
     private ScrollView[] pages = new ScrollView[3];
     private TextView[] tabs = new TextView[3];
@@ -96,6 +96,7 @@ public class MainActivity extends Activity {
         super.onResume();
         api.setVpn(sp.getBoolean("use_vpn", false), sp.getString("vpn_cookie", ""));
         updateBell();
+        if (curTab == 2) renderFavorites();
     }
 
     /** 顶栏“消息”未读角标（消息历史持久化在 Notify 的独立存储里）。 */
@@ -198,6 +199,12 @@ public class MainActivity extends Activity {
         profBox = new LinearLayout(this);
         profBox.setOrientation(LinearLayout.VERTICAL);
         profPage.addView(profBox);
+        favBox = new LinearLayout(this);
+        favBox.setOrientation(LinearLayout.VERTICAL);
+        profPage.addView(favBox);
+        profCatBox = new LinearLayout(this);
+        profCatBox.setOrientation(LinearLayout.VERTICAL);
+        profPage.addView(profCatBox);
         pages[2] = wrapScroll(profPage); contentFrame.addView(pages[2]);
 
         // 底部导航
@@ -380,6 +387,7 @@ public class MainActivity extends Activity {
     }
 
     private void refreshProfile() {
+        renderFavorites();
         runBg(() -> {
             try {
                 JSONObject info = api.myInfo();
@@ -398,6 +406,7 @@ public class MainActivity extends Activity {
 
     private void renderProfile(JSONObject u, JSONArray cats) {
         profBox.removeAllViews();
+        profCatBox.removeAllViews();
         if (u == null) { profBox.addView(emptyText("暂无个人信息")); return; }
         if (cats == null) cats = new JSONArray();
 
@@ -437,9 +446,9 @@ public class MainActivity extends Activity {
         tc.addView(tvUnit);
         profBox.addView(tc);
 
-        // 学时种类明细
-        profBox.addView(sectionText("学时种类（已获 / 要求）"));
-        if (cats.length() == 0) { profBox.addView(emptyText("暂无学时数据")); return; }
+        // 学时种类明细（放在收藏下方）
+        profCatBox.addView(sectionText("学时种类（已获 / 要求）"));
+        if (cats.length() == 0) { profCatBox.addView(emptyText("暂无学时数据")); return; }
         for (int i = 0; i < cats.length(); i++) {
             JSONObject c = cats.optJSONObject(i);
             if (c == null) continue;
@@ -468,8 +477,59 @@ public class MainActivity extends Activity {
                 pb.setLayoutParams(plp);
                 cc.addView(pb);
             }
-            profBox.addView(cc);
+            profCatBox.addView(cc);
         }
+    }
+
+    // ---------------- 本地收藏 ----------------
+    private void renderFavorites() {
+        if (favBox == null) return;
+        favBox.removeAllViews();
+        JSONArray arr = Favorites.list(this);
+        favBox.addView(sectionText("我的收藏（" + arr.length() + "）"));
+        if (arr.length() == 0) {
+            favBox.addView(emptyText("还没有收藏活动。打开活动详情，点标题右侧的“☆ 收藏”即可加入这里。"));
+            return;
+        }
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o != null) favBox.addView(favoriteCard(o));
+        }
+    }
+
+    private LinearLayout favoriteCard(JSONObject o) {
+        final int id = o.optInt("id");
+        final String nm = o.optString("name");
+        int st = o.optInt("status");
+        LinearLayout c = card();
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL); head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView name = new TextView(this);
+        name.setText(nm);
+        name.setTextSize(15); name.setTextColor(cText()); name.setTypeface(null, Typeface.BOLD);
+        name.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        head.addView(name); head.addView(chip(statusName(st), 0xFFFFFFFF, statusColor(st)));
+        c.addView(head);
+        TextView meta = new TextView(this);
+        meta.setTextSize(12); meta.setTextColor(cSub()); meta.setPadding(0, dp(6), 0, 0);
+        meta.setText("种类：" + o.optString("classifyName") + "　主办：" + o.optString("organizationName")
+                + "\n报名：" + fmt(o.optLong("enrollStartTime")) + " ~ " + fmt(o.optLong("enrollEndTime"))
+                + "\n活动：" + fmt(o.optLong("startTime")) + " ~ " + fmt(o.optLong("endTime"))
+                + "\n地点：" + o.optString("address") + "　学时：" + o.optString("hours"));
+        c.addView(meta);
+        addQuota(c, o.optInt("enrollCount"), o.optInt("peopleLimit"));
+        c.setOnClickListener(v -> openDetail(id, nm));
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL); btns.setPadding(0, dp(10), 0, 0);
+        Button open = btn("查看详情", true); open.setOnClickListener(v -> openDetail(id, nm));
+        Button del = btn("取消收藏", false);
+        del.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("取消收藏")
+                .setMessage("确定取消收藏「" + nm + "」？")
+                .setPositiveButton("取消收藏", (d, w) -> { Favorites.remove(this, id); toast("已取消收藏"); renderFavorites(); })
+                .setNegativeButton("再想想", null).show());
+        btns.addView(open); btns.addView(del);
+        c.addView(btns);
+        return c;
     }
 
     private void refreshActivities(boolean ignored) {

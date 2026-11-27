@@ -37,6 +37,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.Locale;
 
 /** 活动详情页。 */
 public class ActivityDetailActivity extends Activity {
@@ -49,6 +50,12 @@ public class ActivityDetailActivity extends Activity {
     private int myUserId = 0;
     private JSONObject detail;
     private LinearLayout content;
+    private final Handler countdownHandler = new Handler(Looper.getMainLooper());
+    private Runnable countdownTick;
+    private TextView countdownText;
+    private TextView topEnroll;
+    private TextView favBtn;
+    private boolean loading = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -97,7 +104,29 @@ public class ActivityDetailActivity extends Activity {
         TextView title = new TextView(this);
         title.setText("活动详情");
         title.setTextSize(17); title.setTextColor(cText()); title.setTypeface(null, Typeface.BOLD);
-        bar.addView(back); bar.addView(title);
+        title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView refresh = new TextView(this);
+        refresh.setText("刷新");
+        refresh.setTextSize(14); refresh.setTextColor(cAccent());
+        refresh.setPadding(dp(14), dp(6), dp(14), dp(6));
+        refresh.setBackground(bg(0x1A000000 | (accent & 0xFFFFFF), 16, 0, 0));
+        refresh.setOnClickListener(v -> {
+            if (loading) return;
+            toast("刷新中…");
+            load();
+        });
+        topEnroll = new TextView(this);
+        topEnroll.setText("立即抢");
+        topEnroll.setTextSize(14); topEnroll.setTextColor(0xFFFFFFFF);
+        topEnroll.setTypeface(null, Typeface.BOLD);
+        topEnroll.setPadding(dp(14), dp(6), dp(14), dp(6));
+        topEnroll.setBackground(bg(cAccent(), 16, 0, 0));
+        topEnroll.setOnClickListener(v -> manualEnroll());
+        topEnroll.setVisibility(View.GONE);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.rightMargin = dp(8);
+        topEnroll.setLayoutParams(tlp);
+        bar.addView(back); bar.addView(title); bar.addView(topEnroll); bar.addView(refresh);
         root.addView(bar);
 
         ScrollView sc = new ScrollView(this);
@@ -130,6 +159,8 @@ public class ActivityDetailActivity extends Activity {
     }
 
     private void load() {
+        if (loading) return;
+        loading = true;
         new Thread(() -> {
             try {
                 try {
@@ -138,9 +169,11 @@ public class ActivityDetailActivity extends Activity {
                     if (d != null) myUserId = d.optInt("id", 0);
                 } catch (Exception ignored) {}
                 final JSONObject d = api.detail(id);
-                runOnUiThread(() -> { detail = d; render(); });
+                runOnUiThread(() -> { loading = false; detail = d; render(); });
             } catch (Exception e) {
                 runOnUiThread(() -> {
+                    loading = false;
+                    stopCountdown();
                     content.removeAllViews();
                     TextView t = new TextView(this);
                     t.setText("加载详情失败：" + e.getMessage());
@@ -186,22 +219,45 @@ public class ActivityDetailActivity extends Activity {
     private String genderText(int g) { return g == 1 ? "男" : (g == 2 ? "女" : "不限"); }
 
     private void render() {
+        stopCountdown();
         content.removeAllViews();
         if (detail == null) return;
         int status = detail.optInt("status");
         int applyStatus = detail.optInt("applyStatus");
+        topEnroll.setVisibility(applyStatus == 2 ? View.GONE : View.VISIBLE);
 
         LinearLayout head = card();
         TextView nm = new TextView(this);
         nm.setText(detail.optString("name", name));
         nm.setTextSize(18); nm.setTextColor(cText()); nm.setTypeface(null, Typeface.BOLD);
-        head.addView(nm);
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        nm.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        favBtn = new TextView(this);
+        favBtn.setTextSize(13);
+        favBtn.setPadding(dp(10), dp(5), dp(10), dp(5));
+        favBtn.setOnClickListener(v -> toggleFavorite());
+        titleRow.addView(nm); titleRow.addView(favBtn);
+        head.addView(titleRow);
+        updateFavButton(Favorites.refreshIfSaved(this, detail, id));
         LinearLayout chips = new LinearLayout(this);
         chips.setOrientation(LinearLayout.HORIZONTAL);
         chips.setPadding(0, dp(8), 0, dp(4));
         chips.addView(chip(stName(status), 0xFFFFFFFF, stColor(status)));
         if (!detail.optString("classifyName").isEmpty()) chips.addView(chip(detail.optString("classifyName"), cAccent(), 0x1A000000 | (accent & 0xFFFFFF)));
         head.addView(chips);
+        countdownText = new TextView(this);
+        countdownText.setTextSize(15);
+        countdownText.setTypeface(null, Typeface.BOLD);
+        countdownText.setTextColor(cAccent());
+        countdownText.setPadding(dp(12), dp(9), dp(12), dp(9));
+        countdownText.setBackground(bg(0x1A000000 | (accent & 0xFFFFFF), 12, 0, 0));
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.topMargin = dp(8);
+        countdownText.setLayoutParams(clp);
+        countdownText.setVisibility(View.GONE);
+        head.addView(countdownText);
         head.addView(line("举办单位：", detail.optString("organizationName")));
         content.addView(head);
 
@@ -264,12 +320,12 @@ public class ActivityDetailActivity extends Activity {
             content.addView(ac);
         }
 
-        // 操作区
-        LinearLayout act = card();
-        LinearLayout row1 = new LinearLayout(this);
-        row1.setOrientation(LinearLayout.HORIZONTAL);
-        row1.setPadding(0, dp(4), 0, 0);
+        // 操作区（立即抢已放到顶栏；这里只保留已报名的操作）
         if (applyStatus == 2) {
+            LinearLayout act = card();
+            LinearLayout row1 = new LinearLayout(this);
+            row1.setOrientation(LinearLayout.HORIZONTAL);
+            row1.setPadding(0, dp(4), 0, 0);
             Button sign = btn("出示签到码", true); sign.setOnClickListener(v -> showSignQr());
             Button rec = btn("打卡记录", false); rec.setOnClickListener(v -> showRecords());
             row1.addView(sign); row1.addView(rec);
@@ -282,12 +338,87 @@ public class ActivityDetailActivity extends Activity {
                 nc.setTextSize(11); nc.setTextColor(cSub()); nc.setPadding(dp(8), dp(8), 0, 0);
                 row1.addView(nc);
             }
-        } else {
-            Button grab = btn("立即抢", true); grab.setOnClickListener(v -> manualEnroll());
-            row1.addView(grab);
+            act.addView(row1);
+            content.addView(act);
         }
-        act.addView(row1);
-        content.addView(act);
+        startCountdown();
+    }
+
+    private void toggleFavorite() {
+        if (detail == null) return;
+        boolean saved = Favorites.toggle(this, detail, id);
+        updateFavButton(saved);
+        toast(saved ? "已收藏，可在「我的」里查看" : "已取消收藏");
+    }
+
+    private void updateFavButton(boolean saved) {
+        if (favBtn == null) return;
+        favBtn.setText(saved ? "★ 已收藏" : "☆ 收藏");
+        favBtn.setTextColor(saved ? 0xFFE6A23C : cAccent());
+        favBtn.setBackground(bg(saved ? 0x1AE6A23C : (0x1A000000 | (accent & 0xFFFFFF)), 14, 0, 0));
+    }
+
+    private void startCountdown() {
+        stopCountdown();
+        countdownTick = new Runnable() {
+            @Override
+            public void run() {
+                if (!tickCountdown()) return;
+                countdownHandler.postDelayed(this, 1000);
+            }
+        };
+        countdownHandler.post(countdownTick);
+    }
+
+    private void stopCountdown() {
+        if (countdownTick != null) {
+            countdownHandler.removeCallbacks(countdownTick);
+            countdownTick = null;
+        }
+    }
+
+    /** 用系统时间与报名开始/截止时间做减法；返回是否继续每秒刷新。 */
+    private boolean tickCountdown() {
+        if (detail == null || countdownText == null) return false;
+        long now = System.currentTimeMillis();
+        long start = detail.optLong("enrollStartTime");
+        long end = detail.optLong("enrollEndTime");
+        long target;
+        String label;
+        if (start > 0 && now < start) {
+            target = start; label = "报名开始倒计时";
+        } else if (end > 0 && now < end) {
+            target = end; label = "报名截止倒计时";
+        } else if (start <= 0 && end <= 0) {
+            countdownText.setVisibility(View.GONE);
+            return false;
+        } else {
+            countdownText.setVisibility(View.VISIBLE);
+            countdownText.setTextColor(cSub());
+            countdownText.setText(detail.optInt("status") == 8 ? "报名已结束，活动已结束" : "报名已结束");
+            return false;
+        }
+        countdownText.setVisibility(View.VISIBLE);
+        countdownText.setTextColor(cAccent());
+        countdownText.setText(label + "  " + fmtLeft(target - now));
+        return true;
+    }
+
+    private static String fmtLeft(long ms) {
+        long s = Math.max(0, ms / 1000);
+        long d = s / 86400; s %= 86400;
+        long h = s / 3600; s %= 3600;
+        long m = s / 60; s %= 60;
+        StringBuilder sb = new StringBuilder();
+        if (d > 0) sb.append(d).append("天 ");
+        sb.append(String.format(Locale.US, "%02d:%02d:%02d", h, m, s));
+        return sb.toString();
+    }
+
+    @Override
+    protected void onDestroy() {
+        stopCountdown();
+        super.onDestroy();
     }
 
     private TextView chip(String text, int fg, int bgColor) {

@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.CalendarContract;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -290,6 +291,28 @@ public class ActivityDetailActivity extends Activity {
         }
         content.addView(info);
 
+        LinearLayout cal = card();
+        TextView calTitle = new TextView(this);
+        calTitle.setText("添加到系统日历");
+        calTitle.setTextSize(14); calTitle.setTextColor(cText()); calTitle.setTypeface(null, Typeface.BOLD);
+        cal.addView(calTitle);
+        TextView calHint = new TextView(this);
+        calHint.setText("抢活动日程用报名时间，参加活动日程用活动时间");
+        calHint.setTextSize(11); calHint.setTextColor(cSub()); calHint.setPadding(0, dp(4), 0, dp(8));
+        cal.addView(calHint);
+        LinearLayout calBtns = new LinearLayout(this);
+        calBtns.setOrientation(LinearLayout.HORIZONTAL);
+        final String actName = detail.optString("name", name);
+        Button grabCal = btn("抢活动日程", false);
+        grabCal.setOnClickListener(v -> addCalendarEvent("抢PU\"" + actName + "\"",
+                detail.optLong("enrollStartTime"), detail.optLong("enrollEndTime"), false));
+        Button joinCal = btn("参加活动日程", true);
+        joinCal.setOnClickListener(v -> addCalendarEvent("参加\"" + actName + "\"",
+                detail.optLong("startTime"), detail.optLong("endTime"), true));
+        calBtns.addView(grabCal); calBtns.addView(joinCal);
+        cal.addView(calBtns);
+        content.addView(cal);
+
         String intro = detail.optString("introduce");
         if (!intro.isEmpty()) {
             LinearLayout ic = card();
@@ -356,6 +379,26 @@ public class ActivityDetailActivity extends Activity {
         favBtn.setText(saved ? "★ 已收藏" : "☆ 收藏");
         favBtn.setTextColor(saved ? 0xFFE6A23C : cAccent());
         favBtn.setBackground(bg(saved ? 0x1AE6A23C : (0x1A000000 | (accent & 0xFFFFFF)), 14, 0, 0));
+    }
+
+    /** 调系统日历的插入界面创建日程，由用户在日历应用中确认保存。 */
+    private void addCalendarEvent(String title, long begin, long end, boolean withLocation) {
+        if (begin <= 0 || end <= 0 || end <= begin) {
+            toast("该活动时间信息不完整，无法创建日程");
+            return;
+        }
+        try {
+            Intent i = new Intent(Intent.ACTION_INSERT)
+                    .setData(CalendarContract.Events.CONTENT_URI)
+                    .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, begin)
+                    .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, end)
+                    .putExtra(CalendarContract.Events.TITLE, title)
+                    .putExtra(CalendarContract.Events.DESCRIPTION, "来自二课助手");
+            if (withLocation) i.putExtra(CalendarContract.Events.EVENT_LOCATION, detail.optString("address"));
+            startActivity(i);
+        } catch (Exception e) {
+            toast("未找到可用的日历应用");
+        }
     }
 
     private void startCountdown() {

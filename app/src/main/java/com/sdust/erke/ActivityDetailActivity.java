@@ -31,6 +31,7 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -47,6 +48,8 @@ public class ActivityDetailActivity extends Activity {
     private boolean dark = false;
     private int accent = 0xFF0B8F6A;
     private int myUserId = 0;
+    private boolean vpnOn = false;
+    private String vpnCookie = "";
     private JSONObject detail;
     private LinearLayout content;
 
@@ -56,6 +59,8 @@ public class ActivityDetailActivity extends Activity {
         sp = getSharedPreferences("erke", MODE_PRIVATE);
         dark = sp.getBoolean("dark", false);
         accent = sp.getInt("accent", 0xFF0B8F6A);
+        vpnOn = sp.getBoolean("use_vpn", false);
+        vpnCookie = sp.getString("vpn_cookie", "");
         api.setToken(sp.getString("token", ""));
         api.setVpn(sp.getBoolean("use_vpn", false), sp.getString("vpn_cookie", ""));
         id = getIntent().getIntExtra("id", 0);
@@ -382,6 +387,11 @@ public class ActivityDetailActivity extends Activity {
         return "https://ekta.sdust.edu.cn/" + u;
     }
 
+    private String attachmentUrl(String u) {
+        String abs = absUrl(u);
+        return vpnOn ? VpnUrls.rewrite(abs) : abs;
+    }
+
     private static String extOf(String name) {
         int i = name.lastIndexOf('.');
         return i >= 0 ? name.substring(i + 1).toLowerCase() : "";
@@ -411,21 +421,44 @@ public class ActivityDetailActivity extends Activity {
     }
 
     private File downloadToCache(String url, String nm) throws Exception {
-        String u = absUrl(url);
-        HttpURLConnection c = (HttpURLConnection) new URL(u).openConnection();
-        c.setConnectTimeout(15000);
-        c.setReadTimeout(60000);
-        c.setRequestProperty("User-Agent", "Mozilla/5.0");
-        String tk = sp.getString("token", "");
-        if (!tk.isEmpty()) c.setRequestProperty("Authorization", tk);
+        String cur = attachmentUrl(url);
+        int hops = 0;
         File dir = new File(getCacheDir(), "attach");
         if (!dir.exists()) dir.mkdirs();
         String safe = nm.replaceAll("[\\\\/:*?\"<>|]", "_");
         File f = new File(dir, safe);
-        try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(f)) {
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        while (true) {
+            HttpURLConnection c = (HttpURLConnection) new URL(cur).openConnection();
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(60000);
+            c.setInstanceFollowRedirects(false);
+            c.setRequestProperty("User-Agent", "Mozilla/5.0");
+            if (vpnOn && !vpnCookie.isEmpty() && cur.contains("webvpn.sdust.edu.cn")) {
+                c.setRequestProperty("Cookie", vpnCookie);
+                c.setRequestProperty("Referer", "https://webvpn.sdust.edu.cn/");
+            }
+            String tk = sp.getString("token", "");
+            if (!tk.isEmpty()) c.setRequestProperty("Authorization", tk);
+            int code = c.getResponseCode();
+            if (code >= 300 && code < 400) {
+                String loc = c.getHeaderField("Location");
+                c.disconnect();
+                if (loc == null || loc.isEmpty() || ++hops > 6) throw new IOException("附件重定向失败（HTTP " + code + "）");
+                cur = new URL(new URL(cur), loc).toString();
+                continue;
+            }
+            if (code >= 400) {
+                c.disconnect();
+                throw new IOException("附件加载失败：HTTP " + code);
+            }
+            try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(f)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            } finally {
+                c.disconnect();
+            }
+            break;
         }
         return f;
     }
@@ -462,16 +495,21 @@ public class ActivityDetailActivity extends Activity {
             i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(Intent.createChooser(i, "选择打开方式"));
         } catch (Exception e) {
-            try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(absUrl(url)))); }
+            try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(attachmentUrl(url)))); }
             catch (Exception e2) { toast("无法打开：" + e.getMessage()); }
         }
     }
 
     private void downloadAttach(String url, String nm) {
         try {
-            DownloadManager.Request req = new DownloadManager.Request(Uri.parse(absUrl(url)));
+            DownloadManager.Request req = new DownloadManager.Request(Uri.parse(attachmentUrl(url)));
             String safe = nm.replaceAll("[\\\\/:*?\"<>|]", "_");
             req.setTitle(nm);
+            req.addRequestHeader("User-Agent", "Mozilla/5.0");
+            if (vpnOn && !vpnCookie.isEmpty()) {
+                req.addRequestHeader("Cookie", vpnCookie);
+                req.addRequestHeader("Referer", "https://webvpn.sdust.edu.cn/");
+            }
             req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, safe);
             DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);

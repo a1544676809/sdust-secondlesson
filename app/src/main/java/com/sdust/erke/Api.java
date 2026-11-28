@@ -33,10 +33,26 @@ public class Api {
     private String token;
     private boolean useVpn = false;
     private String vpnCookie = "";
+    private final Map<String, String> casCookies = new HashMap<>();
 
     public void setVpn(boolean v, String cookie) {
         useVpn = v;
         vpnCookie = cookie == null ? "" : cookie;
+    }
+
+    /** CAS Cookie（来自 webVPN WebView 的登录会话），按域匹配后附加到请求。 */
+    public void setCasCookies(String json) {
+        casCookies.clear();
+        if (json == null || json.isEmpty()) return;
+        try {
+            JSONObject o = new JSONObject(json);
+            for (java.util.Iterator<String> it = o.keys(); it.hasNext(); ) {
+                String host = it.next().toLowerCase();
+                String ck = o.optString(host, "");
+                if (!ck.isEmpty()) casCookies.put(host, ck);
+            }
+        } catch (Exception ignored) {
+        }
     }
     public boolean isVpn() { return useVpn; }
     private String base() {
@@ -66,6 +82,18 @@ public class Api {
             c.setRequestProperty("Accept", "application/json, text/plain, */*");
             if (useVpn && !vpnCookie.isEmpty() && cur.contains("webvpn.sdust.edu.cn")) {
                 c.setRequestProperty("Cookie", vpnCookie);
+            } else if (!casCookies.isEmpty()) {
+                String host = new URL(cur).getHost();
+                if (host != null) {
+                    host = host.toLowerCase();
+                    for (Map.Entry<String, String> e : casCookies.entrySet()) {
+                        String d = e.getKey();
+                        if (host.equals(d) || host.endsWith("." + d)) {
+                            c.setRequestProperty("Cookie", e.getValue());
+                            break;
+                        }
+                    }
+                }
             }
             if (hCur != null) for (Map.Entry<String, String> e : hCur.entrySet()) c.setRequestProperty(e.getKey(), e.getValue());
             if (bodyCur != null) c.setDoOutput(true);
@@ -176,6 +204,9 @@ public class Api {
             ticket = extractTicket(ticketUrl);
         }
         if (ticket == null) ticket = extractTicket(html);
+        if (ticket == null && (user == null || user.isEmpty() || pwd == null || pwd.isEmpty())) {
+            throw new IOException("未获取到 CAS 会话，请重新登录 webVPN 或输入账号密码");
+        }
         if (ticket == null) {
             Resp pk = http("GET", CAS_BASE + "/v2/getPubKey", null, null, false, 0);
             JSONObject jpk = jsonOrThrow(pk.body, "getPubKey");
@@ -215,6 +246,11 @@ public class Api {
         if (tr.optInt("code", -1) != 0) throw new IOException("换取 token 失败: " + tr.optString("msg"));
         token = tr.getJSONObject("data").getString("access_token");
         return token;
+    }
+
+    /** 仅凭 CAS 会话换取 token：webVPN WebView 已登录时无需再输入账号密码。 */
+    public String loginWithSession() throws Exception {
+        return login("", "");
     }
 
     static String extractTicket(String s) {

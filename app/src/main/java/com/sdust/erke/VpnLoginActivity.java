@@ -189,6 +189,7 @@ public class VpnLoginActivity extends Activity {
             CookieManager.getInstance().flush();
             sp.edit().putString("vpn_cookie", ck).putBoolean("use_vpn", true).apply();
             Vpn.markSaved(sp);
+            sp.edit().putString("cas_cookies", CasCookies.collect().toString()).apply();
             done = true;
             Toast.makeText(this, silent ? "webVPN 已自动续期" : "webVPN 登录已保存", Toast.LENGTH_SHORT).show();
             setResult(RESULT_OK);

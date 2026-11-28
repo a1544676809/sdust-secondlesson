@@ -208,8 +208,9 @@ public class LoginActivity extends Activity {
         final String token = sp.getString("token", "");
         final String user = sp.getString("user", "");
         final String pwd = sp.getString("pwd", "");
-        String casCookie = sp.getString("cas_cookies", "");
-        if (casCookie.isEmpty() && Vpn.on(sp)) {
+        final boolean loggedOut = sp.getBoolean("logged_out", false);
+        String casCookie = loggedOut ? "" : sp.getString("cas_cookies", "");
+        if (!loggedOut && casCookie.isEmpty() && Vpn.on(sp)) {
             // 旧版本已登录过 webVPN 时不会再进登录页，直接读取 WebView 现存的 CAS 会话
             String live = CasCookies.collect().toString();
             if (!"{}".equals(live)) {
@@ -329,7 +330,8 @@ public class LoginActivity extends Activity {
         new Thread(() -> {
             try {
                 String t = api.login(u, p);
-                sp.edit().putString("token", t).putString("user", u).putString("pwd", p).apply();
+                sp.edit().putString("token", t).putString("user", u).putString("pwd", p)
+                        .putBoolean("logged_out", false).apply();
                 runOnUiThread(this::goMain);
             } catch (Exception e) {
                 final String m = e.getMessage();

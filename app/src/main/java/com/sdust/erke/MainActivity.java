@@ -969,7 +969,9 @@ public class MainActivity extends Activity {
     }
 
     private void doLogout() {
-        sp.edit().remove("token").remove("user").remove("pwd").apply();
+        // 同时清掉 webVPN 网页登录留下的 CAS 会话，否则启动时会被自动登录回去
+        sp.edit().remove("token").remove("user").remove("pwd").remove("cas_cookies")
+                .putBoolean("logged_out", true).apply();
         api.setToken(null);
         Intent i = new Intent(this, LoginActivity.class);
         i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);

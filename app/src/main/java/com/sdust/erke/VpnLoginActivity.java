@@ -187,7 +187,8 @@ public class VpnLoginActivity extends Activity {
                 return;
             }
             CookieManager.getInstance().flush();
-            sp.edit().putString("vpn_cookie", ck).putBoolean("use_vpn", true).apply();
+            sp.edit().putString("vpn_cookie", ck).putBoolean("use_vpn", true)
+                    .putBoolean("logged_out", false).apply();
             Vpn.markSaved(sp);
             sp.edit().putString("cas_cookies", CasCookies.collect().toString()).apply();
             done = true;

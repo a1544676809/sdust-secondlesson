@@ -33,10 +33,26 @@ public class Api {
     private String token;
     private boolean useVpn = false;
     private String vpnCookie = "";
+    private final Map<String, String> casCookies = new HashMap<>();
 
     public void setVpn(boolean v, String cookie) {
         useVpn = v;
         vpnCookie = cookie == null ? "" : cookie;
+    }
+
+    /** CAS Cookie（来自 webVPN WebView 的登录会话），按域匹配后附加到请求。 */
+    public void setCasCookies(String json) {
+        casCookies.clear();
+        if (json == null || json.isEmpty()) return;
+        try {
+            JSONObject o = new JSONObject(json);
+            for (java.util.Iterator<String> it = o.keys(); it.hasNext(); ) {
+                String host = it.next().toLowerCase();
+                String ck = o.optString(host, "");
+                if (!ck.isEmpty()) casCookies.put(host, ck);
+            }
+        } catch (Exception ignored) {
+        }
     }
     public boolean isVpn() { return useVpn; }
     private String base() {
@@ -66,6 +82,18 @@ public class Api {
             c.setRequestProperty("Accept", "application/json, text/plain, */*");
             if (useVpn && !vpnCookie.isEmpty() && cur.contains("webvpn.sdust.edu.cn")) {
                 c.setRequestProperty("Cookie", vpnCookie);
+            } else if (!casCookies.isEmpty()) {
+                String host = new URL(cur).getHost();
+                if (host != null) {
+                    host = host.toLowerCase();
+                    for (Map.Entry<String, String> e : casCookies.entrySet()) {
+                        String d = e.getKey();
+                        if (host.equals(d) || host.endsWith("." + d)) {
+                            c.setRequestProperty("Cookie", e.getValue());
+                            break;
+                        }
+                    }
+                }
             }
             if (hCur != null) for (Map.Entry<String, String> e : hCur.entrySet()) c.setRequestProperty(e.getKey(), e.getValue());
             if (bodyCur != null) c.setDoOutput(true);
@@ -161,33 +189,51 @@ public class Api {
     }
 
     public String login(String user, String pwd) throws Exception {
-        String loginUrl = CAS_BASE + "/login?service=" + enc(SSO_TARGET);
-        Resp page = http("GET", loginUrl, null, null, false, 0);
+        String cur = CAS_BASE + "/login?service=" + enc(SSO_TARGET);
+        Resp page = http("GET", cur, null, null, false, 0);
         String html = page.body == null ? "" : page.body;
-        Resp pk = http("GET", CAS_BASE + "/v2/getPubKey", null, null, false, 0);
-        JSONObject jpk = jsonOrThrow(pk.body, "getPubKey");
-        String mod = jpk.getString("modulus"), exp = jpk.getString("exponent");
-        Matcher m = Pattern.compile("<form[^>]*id=\"fm1\"[^>]*action=\"([^\"]*)\"").matcher(html);
-        String action = m.find() ? m.group(1).trim() : "login";
-        Matcher me = Pattern.compile("name=\"execution\"\\s+value=\"([^\"]+)\"").matcher(html);
-        String execution = me.find() ? me.group(1) : "";
-        StringBuilder rev = new StringBuilder(pwd);
-        rev.reverse();
-        String encPwd = rsaEncrypt(rev.toString(), exp, mod);
-        String postUrl = new URL(new URL(loginUrl), action).toString();
-        String form = "username=" + enc(user) + "&password=" + enc(encPwd) + "&execution=" + enc(execution)
-                + "&_eventId=submit&rememberMe=true";
-        Map<String, String> h = new HashMap<>();
-        h.put("Content-Type", "application/x-www-form-urlencoded");
-        Resp post = http("POST", postUrl, form, h, false, 0);
-        String ticket = extractTicket(post.location);
-        if (ticket == null) ticket = extractTicket(post.body);
-        if (ticket == null) throw new IOException("CAS 登录失败（未取得 ticket），请检查账号密码");
+        String ticketUrl = page.location;
+        String ticket = extractTicket(ticketUrl);
+        // CAS 已有登录态时会直接 302 到 service 并带上 ticket，也可能先跳到其他登录地址
+        for (int hop = 0; ticket == null && page.code >= 300 && page.code < 400
+                && ticketUrl != null && hop < 5; hop++) {
+            cur = new URL(new URL(cur), ticketUrl).toString();
+            page = http("GET", cur, null, null, false, 0);
+            html = page.body == null ? "" : page.body;
+            ticketUrl = page.location;
+            ticket = extractTicket(ticketUrl);
+        }
+        if (ticket == null) ticket = extractTicket(html);
+        if (ticket == null && (user == null || user.isEmpty() || pwd == null || pwd.isEmpty())) {
+            throw new IOException("未获取到 CAS 会话，请重新登录 webVPN 或输入账号密码");
+        }
+        if (ticket == null) {
+            Resp pk = http("GET", CAS_BASE + "/v2/getPubKey", null, null, false, 0);
+            JSONObject jpk = jsonOrThrow(pk.body, "getPubKey");
+            String mod = jpk.getString("modulus"), exp = jpk.getString("exponent");
+            Matcher m = Pattern.compile("<form[^>]*id=\"fm1\"[^>]*action=\"([^\"]*)\"").matcher(html);
+            String action = m.find() ? m.group(1).trim() : "login";
+            Matcher me = Pattern.compile("name=\"execution\"\\s+value=\"([^\"]+)\"").matcher(html);
+            String execution = me.find() ? me.group(1) : "";
+            StringBuilder rev = new StringBuilder(pwd);
+            rev.reverse();
+            String encPwd = rsaEncrypt(rev.toString(), exp, mod);
+            String postUrl = new URL(new URL(cur), action).toString();
+            String form = "username=" + enc(user) + "&password=" + enc(encPwd) + "&execution=" + enc(execution)
+                    + "&_eventId=submit&rememberMe=true";
+            Map<String, String> h = new HashMap<>();
+            h.put("Content-Type", "application/x-www-form-urlencoded");
+            Resp post = http("POST", postUrl, form, h, false, 0);
+            ticketUrl = post.location;
+            ticket = extractTicket(ticketUrl);
+            if (ticket == null) ticket = extractTicket(post.body);
+        }
+        if (ticket == null) throw new IOException("CAS 登录失败（未取得 ticket），请检查账号密码或稍后重试");
         JSONObject sp = new JSONObject();
         sp.put("targetUrl", SSO_TARGET);
         sp.put("ticket", ticket);
         sp.put("routeUrl", "/sdustlogin");
-        sp.put("pathAll", post.location != null ? post.location : SSO_TARGET);
+        sp.put("pathAll", ticketUrl != null ? ticketUrl : SSO_TARGET);
         JSONObject d = apiGet("user/sdustSSOAuth", sp);
         if (d.optInt("code", -1) != 0) throw new IOException("SSO 校验失败: " + d.optString("msg"));
         JSONObject dd = d.getJSONObject("data");
@@ -200,6 +246,11 @@ public class Api {
         if (tr.optInt("code", -1) != 0) throw new IOException("换取 token 失败: " + tr.optString("msg"));
         token = tr.getJSONObject("data").getString("access_token");
         return token;
+    }
+
+    /** 仅凭 CAS 会话换取 token：webVPN WebView 已登录时无需再输入账号密码。 */
+    public String loginWithSession() throws Exception {
+        return login("", "");
     }
 
     static String extractTicket(String s) {

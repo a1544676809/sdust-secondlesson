@@ -208,8 +208,34 @@ public class LoginActivity extends Activity {
         final String token = sp.getString("token", "");
         final String user = sp.getString("user", "");
         final String pwd = sp.getString("pwd", "");
+        final boolean loggedOut = sp.getBoolean("logged_out", false);
+        String casCookie = loggedOut ? "" : sp.getString("cas_cookies", "");
+        if (!loggedOut && casCookie.isEmpty() && Vpn.on(sp)) {
+            // 旧版本已登录过 webVPN 时不会再进登录页，直接读取 WebView 现存的 CAS 会话
+            String live = CasCookies.collect().toString();
+            if (!"{}".equals(live)) {
+                casCookie = live;
+                sp.edit().putString("cas_cookies", live).apply();
+            }
+        }
+        api.setVpn(Vpn.on(sp), Vpn.cookie(sp));
+        api.setCasCookies(casCookie);
+        final boolean hasCas = !casCookie.isEmpty();
         if (token.isEmpty() && (user.isEmpty() || pwd.isEmpty())) {
-            tvStatus.setText("请登录");
+            if (!hasCas) {
+                tvStatus.setText("请登录");
+                return;
+            }
+            setBusy(true, "检测到 webVPN 登录状态，正在完成登录…");
+            new Thread(() -> {
+                try {
+                    String t = api.loginWithSession();
+                    sp.edit().putString("token", t).apply();
+                    runOnUiThread(this::goMain);
+                } catch (Exception e) {
+                    runOnUiThread(() -> setBusy(false, "webVPN 已登录，请再输入一次账号密码"));
+                }
+            }).start();
             return;
         }
         setBusy(true, "检测到本地登录信息，正在自动登录…");
@@ -220,7 +246,13 @@ public class LoginActivity extends Activity {
                     JSONObject info = api.myInfo();
                     if (info.optInt("code", -1) == 0) { runOnUiThread(this::goMain); return; }
                 }
-                if (user.isEmpty() || pwd.isEmpty()) throw new Exception("本地没有完整账号密码");
+                if (user.isEmpty() || pwd.isEmpty()) {
+                    if (!hasCas) throw new Exception("本地没有完整账号密码");
+                    String t = api.loginWithSession();
+                    sp.edit().putString("token", t).apply();
+                    runOnUiThread(this::goMain);
+                    return;
+                }
                 String t = api.login(user, pwd);
                 sp.edit().putString("token", t).putString("user", user).putString("pwd", pwd).apply();
                 runOnUiThread(this::goMain);
@@ -298,7 +330,8 @@ public class LoginActivity extends Activity {
         new Thread(() -> {
             try {
                 String t = api.login(u, p);
-                sp.edit().putString("token", t).putString("user", u).putString("pwd", p).apply();
+                sp.edit().putString("token", t).putString("user", u).putString("pwd", p)
+                        .putBoolean("logged_out", false).apply();
                 runOnUiThread(this::goMain);
             } catch (Exception e) {
                 final String m = e.getMessage();
